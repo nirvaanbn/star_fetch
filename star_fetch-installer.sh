@@ -29,6 +29,7 @@
 #   star_fetch end      stop it
 #   star_fetch blue     switch to the blue colors
 #   star_fetch blonde   switch back to the blonde colors (default)
+#   star_fetch border   toggle the border on/off (default off)
 
 set -euo pipefail
 
@@ -269,10 +270,31 @@ render() {
 # its value) so the text doesn't shift sideways as the numbers change.
 VALUE_ROOM=8
 
+# --- Optional border (`star_fetch border` toggles it) ---
+# Drawn on the outermost cells while the flag file exists. The toggle also
+# grows the window by one cell on each side, so the text keeps its spacing.
+BORDER_FLAG="$SCRIPT_DIR/border"
+PROFILE="$HOME/.local/share/konsole/star_fetch.profile"
+
+border_color() {
+    # Blonde: a soft tan from the Blonde palette, lighter than its brown text.
+    # Blue: the lavender text color itself (the default foreground).
+    if grep -qx 'ColorScheme=Blonde' "$PROFILE" 2>/dev/null; then
+        printf '\e[38;2;166;136;102m'
+    else
+        printf '\e[39m'
+    fi
+}
+
 draw() {
     local rows cols lines line width=0 top left i out
+    local border=0 inner_r inner_c color hline body
     read -r rows cols < <(stty size 2>/dev/null) || true
     rows=${rows:-12} cols=${cols:-38}
+    if [ -f "$BORDER_FLAG" ] && [ "$rows" -ge 3 ] && [ "$cols" -ge 3 ]; then
+        border=1
+    fi
+    inner_r=$((rows - 2 * border)) inner_c=$((cols - 2 * border))
 
     while IFS= read -r line; do
         [ ${#line} -gt "$width" ] && width=${#line}
@@ -280,18 +302,37 @@ draw() {
     width=$((width + VALUE_ROOM))
 
     mapfile -t lines < <(render)
-    top=$(( (rows - ${#lines[@]}) / 2 )); [ "$top" -lt 0 ] && top=0
-    left=$(( (cols - width) / 2 ));       [ "$left" -lt 0 ] && left=0
+    top=$(( (inner_r - ${#lines[@]}) / 2 )); [ "$top" -lt 0 ] && top=0
+    left=$(( (inner_c - width) / 2 ));       [ "$left" -lt 0 ] && left=0
 
     # Home the cursor and overwrite in place (no full clear, so no flicker);
     # \e[K clears the rest of each row, \e[J everything below the block.
     out=$'\e[H'
-    for ((i = 0; i < top; i++)); do out+=$'\e[K\n'; done
-    for i in "${!lines[@]}"; do
-        [ "$i" -gt 0 ] && out+=$'\n'
-        out+="$(printf '%*s' "$left" '')${lines[$i]}"$'\e[K'
-    done
-    out+=$'\e[J'
+    if [ "$border" = 0 ]; then
+        for ((i = 0; i < top; i++)); do out+=$'\e[K\n'; done
+        for i in "${!lines[@]}"; do
+            [ "$i" -gt 0 ] && out+=$'\n'
+            out+="$(printf '%*s' "$left" '')${lines[$i]}"$'\e[K'
+        done
+        out+=$'\e[J'
+    else
+        # Every row is drawn full width: pad (or clip) the text to the
+        # inside of the box so the right edge lines up.
+        color=$(border_color)
+        hline=""
+        for ((i = 0; i < inner_c; i++)); do hline+='─'; done
+        out+="${color}┌${hline}┐"$'\e[39m'
+        for ((i = 0; i < inner_r; i++)); do
+            body=""
+            if [ "$i" -ge "$top" ] && [ $((i - top)) -lt ${#lines[@]} ]; then
+                body="$(printf '%*s' "$left" '')${lines[$((i - top))]}"
+            fi
+            body=${body:0:inner_c}
+            body+=$(printf '%*s' $((inner_c - ${#body})) '')
+            out+=$'\n'"${color}│"$'\e[39m'"${body}${color}│"$'\e[39m'
+        done
+        out+=$'\n'"${color}└${hline}┘"$'\e[39m'
+    fi
     printf '%s' "$out"
 }
 
@@ -339,11 +380,17 @@ cat > "$BIN_DIR/star_fetch" <<'STAR_FETCH_EOF'
 #   star_fetch end      stop the widget
 #   star_fetch blue     switch to the blue colors
 #   star_fetch blonde   switch back to the blonde colors (default)
+#   star_fetch border   toggle the border on/off (default off)
 
 # Anchored so it only matches the widget itself, not some other command line
 # that happens to mention star_fetch.sh.
 PATTERN='star_fetch\.sh --loop$'
 PROFILE="$HOME/.local/share/konsole/star_fetch.profile"
+DATA_DIR="$HOME/.local/share/star_fetch"
+RULE_ID="4bf35db9-0ac7-4637-afb4-dfd61ca2972a"
+# The border takes one character cell on each side. Hack 10 cells are
+# ~8.14x15 px, so 38x12 cells (310x180) become 40x14 (326x210).
+BORDER_W=16 BORDER_H=30
 
 is_running() {
     pgrep -f "$PATTERN" >/dev/null 2>&1
@@ -400,6 +447,35 @@ set_colors() {
     fi
 }
 
+# The border flag tells star_fetch.sh to draw the box; the KWin rule grows
+# (or shrinks) the window to make room, keeping its right edge in place.
+# A running widget redraws as soon as the window is resized.
+toggle_border() {
+    local size pos w h x y state
+    size=$(kreadconfig6 --file kwinrulesrc --group "$RULE_ID" --key size)
+    pos=$(kreadconfig6 --file kwinrulesrc --group "$RULE_ID" --key position)
+    if [ ! -d "$DATA_DIR" ] || [ -z "$size" ] || [ -z "$pos" ]; then
+        echo "star_fetch isn't installed (no data folder or KWin rule)." >&2
+        exit 1
+    fi
+    IFS=, read -r w h <<< "$size"
+    IFS=, read -r x y <<< "$pos"
+    if [ -f "$DATA_DIR/border" ]; then
+        rm -f "$DATA_DIR/border"
+        w=$((w - BORDER_W)) h=$((h - BORDER_H)) x=$((x + BORDER_W))
+        state=off
+    else
+        touch "$DATA_DIR/border"
+        w=$((w + BORDER_W)) h=$((h + BORDER_H)) x=$((x - BORDER_W))
+        state=on
+    fi
+    kwriteconfig6 --file kwinrulesrc --group "$RULE_ID" --key size "$w,$h"
+    kwriteconfig6 --file kwinrulesrc --group "$RULE_ID" --key position "$x,$y"
+    dbus-send --session --dest=org.kde.KWin --type=method_call \
+        /KWin org.kde.KWin.reconfigure 2>/dev/null
+    echo "star_fetch border: $state"
+}
+
 case "${1:-}" in
     ""|start)
         start_widget
@@ -413,8 +489,11 @@ case "${1:-}" in
     blonde)
         set_colors blonde Blonde
         ;;
+    border)
+        toggle_border
+        ;;
     *)
-        echo "Usage: star_fetch [end | blue | blonde]"
+        echo "Usage: star_fetch [end | blue | blonde | border]"
         exit 1
         ;;
 esac
@@ -671,9 +750,18 @@ kw --key desktops      '\0'
 kw --key desktopsrule  2
 kw --key noborder      true
 kw --key noborderrule  2
-kw --key position      "$POSITION"
+# --position/--size describe the widget without a border. If the border is
+# on (`star_fetch border`), grow the window one cell per side (16x30 px in
+# Hack 10), keeping the right edge where it would otherwise be.
+RULE_POS="$POSITION" RULE_SIZE="$SIZE"
+if [ -f "$DATA_DIR/border" ]; then
+    IFS=, read -r bx by <<< "$POSITION"
+    IFS=, read -r bw bh <<< "$SIZE"
+    RULE_POS="$((bx - 16)),$by" RULE_SIZE="$((bw + 16)),$((bh + 30))"
+fi
+kw --key position      "$RULE_POS"
 kw --key positionrule  2
-kw --key size          "$SIZE"
+kw --key size          "$RULE_SIZE"
 kw --key sizerule      2
 kw --key skippager     true
 kw --key skippagerrule 2
@@ -715,6 +803,7 @@ echo ""
 echo "Start the widget:  star_fetch"
 echo "Stop the widget:   star_fetch end"
 echo "Colors:            star_fetch blue / star_fetch blonde"
+echo "Border:            star_fetch border (toggles on/off)"
 
 if [ "$START" = 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
     # Restart so a running widget picks up the new files.
