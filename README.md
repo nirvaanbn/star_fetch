@@ -1,9 +1,9 @@
 # star_fetch
 
 <p align="center">
-  <img src="assets/star_fetch_frame.png" alt="star_fetch widget, blue colors" width="380">
+  <img src="assets/mockup_blue.png" alt="star_fetch widget, blue colors" width="380" height="234">
   &nbsp;
-  <img src="assets/star_fetch_frame_blonde.png" alt="star_fetch widget, blonde colors" width="380">
+  <img src="assets/mockup_blonde.png" alt="star_fetch widget, blonde colors" width="380" height="234">
 </p>
 
 konsole widget that fetches ram/cpu/battery info/os/uptime and
