@@ -29,6 +29,7 @@ star_fetch          # start the widget
 star_fetch end      # stop it
 star_fetch blue     # blue colors (navy background, lavender text)
 star_fetch blonde   # blonde colors (the default)
+star_fetch border   # toggles border on/off
 ```
 
 
