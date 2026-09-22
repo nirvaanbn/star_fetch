@@ -42,7 +42,7 @@ star_fetch border   # toggles border on/off
 ## Options (Fedora / KDE Plasma)
 
 ```
---position X,Y   top-left corner in pixels (default 1424,130)
+--margin R,T     gap from the primary screen's right and top edges (default 186,130)
 --size W,H       size in pixels (default 310,180)
 --autostart      start the widget at login
 --no-start       don't start it after installing
