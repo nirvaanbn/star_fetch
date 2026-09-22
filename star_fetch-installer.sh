@@ -12,13 +12,15 @@
 #   ~/.local/share/konsole/Blonde.colorscheme      Konsole color scheme (default)
 #   ~/.local/share/konsole/StarFetchBlue.colorscheme  blue color scheme
 #   ~/.config/kwinrulesrc                          KWin window rule
+#   ~/.local/share/kwin/scripts/star_fetch/        KWin script that places it
 #
 # Usage:
 #   bash star_fetch-installer.sh [options]       install (or update in place)
 #   bash star_fetch-installer.sh --uninstall     remove everything above
 #
 # Options:
-#   --position X,Y   top-left corner of the widget in pixels   (default 1424,130)
+#   --margin R,T     gap from the primary screen's right and top edges
+#                    in pixels                                 (default 186,130)
 #   --size W,H       widget size in pixels                     (default 310,180)
 #   --autostart      also start the widget when you log in
 #   --no-start       don't start the widget after installing
@@ -41,7 +43,7 @@ AUTOSTART_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/star_fetch.desktop"
 # instead of adding a duplicate.
 RULE_ID="4bf35db9-0ac7-4637-afb4-dfd61ca2972a"
 
-POSITION="1424,130"
+MARGIN="186,130"
 SIZE="310,180"
 AUTOSTART=0
 START=1
@@ -51,7 +53,7 @@ usage() { sed -n '2,/^$/{s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --position) POSITION="${2:?--position needs X,Y}"; shift 2 ;;
+        --margin)   MARGIN="${2:?--margin needs RIGHT,TOP}"; shift 2 ;;
         --size)     SIZE="${2:?--size needs W,H}"; shift 2 ;;
         --autostart) AUTOSTART=1; shift ;;
         --no-start) START=0; shift ;;
@@ -61,9 +63,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-for pair in "$POSITION" "$SIZE"; do
+for pair in "$MARGIN" "$SIZE"; do
     if ! [[ "$pair" =~ ^[0-9]+,[0-9]+$ ]]; then
-        echo "Expected two numbers like 1424,130 — got '$pair'" >&2
+        echo "Expected two numbers like 186,130 — got '$pair'" >&2
         exit 1
     fi
 done
@@ -85,11 +87,15 @@ delete_rule_group() {
 
 # Matches the widget loop, and the watch-based widget from older installs.
 WIDGET_PATTERN='star_fetch\.sh --loop$|^watch -ctn 30 .*star_fetch\.sh$|^/usr/bin/watch -ctn 30 .*star_fetch\.sh$'
+# The Konsole windows star_fetch opens. Older versions left these open after
+# stopping, so they're closed too.
+KONSOLE_PATTERN='^konsole --profile star_fetch --hide-menubar --hide-tabbar$'
 
 stop_running_widget() {
-    pkill -f "$WIDGET_PATTERN" 2>/dev/null || return 0
+    pkill -f "$WIDGET_PATTERN" 2>/dev/null || true
+    pkill -f "$KONSOLE_PATTERN" 2>/dev/null || true
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-        pgrep -f "$WIDGET_PATTERN" >/dev/null 2>&1 || return 0
+        pgrep -f "$WIDGET_PATTERN|$KONSOLE_PATTERN" >/dev/null 2>&1 || return 0
         sleep 0.2
     done
 }
@@ -110,8 +116,12 @@ if [ "$ACTION" = uninstall ]; then
         kwriteconfig6 --file kwinrulesrc --group General --key count \
             "$(echo "$rules" | tr ',' '\n' | grep -c . || true)"
         delete_rule_group
+        kwriteconfig6 --file kwinrc --group Plugins --key star_fetchEnabled --delete
+        dbus-send --session --type=method_call --dest=org.kde.KWin /Scripting \
+            org.kde.kwin.Scripting.unloadScript string:star_fetch >/dev/null 2>&1 || true
         reconfigure_kwin
     fi
+    rm -rf "$HOME/.local/share/kwin/scripts/star_fetch"
     echo "Done. star_fetch removed."
     exit 0
 fi
@@ -343,6 +353,9 @@ if [ "${1:-}" = --loop ]; then
     nap=""
     trap 'resized=1; [ -n "$nap" ] && kill "$nap" 2>/dev/null' WINCH
     trap '[ -n "$nap" ] && kill "$nap" 2>/dev/null' EXIT
+    # Exit cleanly when stopped: Konsole keeps a window open if its command
+    # dies from a signal, but closes it after a normal exit.
+    trap 'exit 0' TERM HUP INT
     while :; do
         resized=0
         draw
@@ -385,6 +398,8 @@ cat > "$BIN_DIR/star_fetch" <<'STAR_FETCH_EOF'
 # Anchored so it only matches the widget itself, not some other command line
 # that happens to mention star_fetch.sh.
 PATTERN='star_fetch\.sh --loop$'
+# The Konsole windows star_fetch opens (stopping closes these too).
+KONSOLE_PATTERN='^konsole --profile star_fetch --hide-menubar --hide-tabbar$'
 PROFILE="$HOME/.local/share/konsole/star_fetch.profile"
 DATA_DIR="$HOME/.local/share/star_fetch"
 RULE_ID="4bf35db9-0ac7-4637-afb4-dfd61ca2972a"
@@ -409,8 +424,8 @@ start_widget() {
     # Konsole sets the window's real title a moment after it's first
     # mapped, which is often too late for KWin's window rule to catch
     # on that very first placement. Nudging KWin to re-check its rules
-    # a second later re-applies the Force'd position/behavior once the
-    # title has caught up.
+    # a second later re-applies the Force'd size/behavior once the title
+    # has caught up. (The star_fetch KWin script does the positioning.)
     sleep 1
     dbus-send --session --dest=org.kde.KWin --type=method_call \
         /KWin org.kde.KWin.reconfigure 2>/dev/null
@@ -419,12 +434,18 @@ start_widget() {
 }
 
 stop_widget() {
-    if pkill -f "$PATTERN" 2>/dev/null; then
-        # Wait for it to exit so a restart doesn't see it as still running.
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-            is_running || break
-            sleep 0.2
-        done
+    local was_running=0
+    is_running && was_running=1
+    pkill -f "$PATTERN" 2>/dev/null
+    # Also close any star_fetch Konsole windows (including ones older
+    # versions left open after stopping).
+    pkill -f "$KONSOLE_PATTERN" 2>/dev/null
+    # Wait for it to exit so a restart doesn't see it as still running.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        pgrep -f "$PATTERN|$KONSOLE_PATTERN" >/dev/null 2>&1 || break
+        sleep 0.2
+    done
+    if [ "$was_running" = 1 ]; then
         echo "star_fetch stopped."
     else
         echo "star_fetch was not running."
@@ -448,29 +469,27 @@ set_colors() {
 }
 
 # The border flag tells star_fetch.sh to draw the box; the KWin rule grows
-# (or shrinks) the window to make room, keeping its right edge in place.
-# A running widget redraws as soon as the window is resized.
+# (or shrinks) the window to make room, and the star_fetch KWin script keeps
+# it anchored to the screen's top-right corner. A running widget redraws as
+# soon as the window is resized.
 toggle_border() {
-    local size pos w h x y state
+    local size w h state
     size=$(kreadconfig6 --file kwinrulesrc --group "$RULE_ID" --key size)
-    pos=$(kreadconfig6 --file kwinrulesrc --group "$RULE_ID" --key position)
-    if [ ! -d "$DATA_DIR" ] || [ -z "$size" ] || [ -z "$pos" ]; then
+    if [ ! -d "$DATA_DIR" ] || [ -z "$size" ]; then
         echo "star_fetch isn't installed (no data folder or KWin rule)." >&2
         exit 1
     fi
     IFS=, read -r w h <<< "$size"
-    IFS=, read -r x y <<< "$pos"
     if [ -f "$DATA_DIR/border" ]; then
         rm -f "$DATA_DIR/border"
-        w=$((w - BORDER_W)) h=$((h - BORDER_H)) x=$((x + BORDER_W))
+        w=$((w - BORDER_W)) h=$((h - BORDER_H))
         state=off
     else
         touch "$DATA_DIR/border"
-        w=$((w + BORDER_W)) h=$((h + BORDER_H)) x=$((x - BORDER_W))
+        w=$((w + BORDER_W)) h=$((h + BORDER_H))
         state=on
     fi
     kwriteconfig6 --file kwinrulesrc --group "$RULE_ID" --key size "$w,$h"
-    kwriteconfig6 --file kwinrulesrc --group "$RULE_ID" --key position "$x,$y"
     dbus-send --session --dest=org.kde.KWin --type=method_call \
         /KWin org.kde.KWin.reconfigure 2>/dev/null
     echo "star_fetch border: $state"
@@ -737,7 +756,8 @@ STAR_FETCH_EOF
 # ---------------------------------------------------------------- KWin rule
 # The profile titles the widget "star_fetch — Konsole"; the rule matches that
 # substring and forces: no border, keep below, all desktops, skip taskbar and
-# pager, no focus, and a fixed position and size.
+# pager, no focus, and a fixed size. Position is left to the KWin script
+# below, since a rule can only hold one fixed spot for every screen setup.
 kw() { kwriteconfig6 --file kwinrulesrc --group "$RULE_ID" "$@"; }
 delete_rule_group
 kw --key Description   "star_fetch"
@@ -750,17 +770,13 @@ kw --key desktops      '\0'
 kw --key desktopsrule  2
 kw --key noborder      true
 kw --key noborderrule  2
-# --position/--size describe the widget without a border. If the border is
-# on (`star_fetch border`), grow the window one cell per side (16x30 px in
-# Hack 10), keeping the right edge where it would otherwise be.
-RULE_POS="$POSITION" RULE_SIZE="$SIZE"
+# --size describes the widget without a border. If the border is on
+# (`star_fetch border`), grow the window one cell per side (16x30 px in Hack 10).
+RULE_SIZE="$SIZE"
 if [ -f "$DATA_DIR/border" ]; then
-    IFS=, read -r bx by <<< "$POSITION"
     IFS=, read -r bw bh <<< "$SIZE"
-    RULE_POS="$((bx - 16)),$by" RULE_SIZE="$((bw + 16)),$((bh + 30))"
+    RULE_SIZE="$((bw + 16)),$((bh + 30))"
 fi
-kw --key position      "$RULE_POS"
-kw --key positionrule  2
 kw --key size          "$RULE_SIZE"
 kw --key sizerule      2
 kw --key skippager     true
@@ -777,6 +793,88 @@ fi
 kwriteconfig6 --file kwinrulesrc --group General --key count \
     "$(echo "$rules" | tr ',' '\n' | grep -c . || true)"
 reconfigure_kwin
+
+# ---------------------------------------------------------------- KWin script
+# Keeps the widget a fixed gap from the top-right corner of the primary
+# screen, and moves it again when screens are plugged in, unplugged or
+# rearranged, or when the border toggle resizes it.
+KWIN_SCRIPT_DIR="$HOME/.local/share/kwin/scripts/star_fetch"
+mkdir -p "$KWIN_SCRIPT_DIR/contents/code"
+IFS=, read -r MARGIN_RIGHT MARGIN_TOP <<< "$MARGIN"
+
+cat > "$KWIN_SCRIPT_DIR/metadata.json" <<'STAR_FETCH_EOF'
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Id": "star_fetch",
+        "Name": "star_fetch placement",
+        "Description": "Keeps the star_fetch widget in the top-right corner of the primary screen",
+        "Icon": "utilities-terminal",
+        "License": "MIT"
+    },
+    "X-Plasma-API": "javascript"
+}
+STAR_FETCH_EOF
+
+{
+    echo "// Written by star_fetch-installer.sh (--margin $MARGIN_RIGHT,$MARGIN_TOP)."
+    echo "var RIGHT_MARGIN = $MARGIN_RIGHT;  // px from the primary screen's right edge"
+    echo "var TOP_MARGIN = $MARGIN_TOP;     // px from its top edge"
+    cat <<'STAR_FETCH_EOF'
+var TITLE = "star_fetch — Konsole";
+
+// Log with: journalctl --user -b | grep "star_fetch:"
+function log(message) {
+    console.info("star_fetch: " + message);
+}
+
+function isWidget(window) {
+    return window && String(window.caption).indexOf(TITLE) !== -1;
+}
+
+function place(window) {
+    if (!isWidget(window)) return;
+    var screen = workspace.screenOrder[0] || window.output;
+    var area = screen.geometry;
+    var geo = window.frameGeometry;
+    var x = Math.max(area.x, Math.round(area.x + area.width - RIGHT_MARGIN - geo.width));
+    var y = Math.round(area.y + TOP_MARGIN);
+    if (Math.round(geo.x) === x && Math.round(geo.y) === y) return;
+    window.frameGeometry = {x: x, y: y, width: geo.width, height: geo.height};
+    log("placed at " + x + "," + y + " on " + screen.name);
+}
+
+// Konsole names the window a moment after it opens, and the window rule
+// resizes it, so re-check on both.
+var watched = new Set();
+function watch(window) {
+    if (!window || watched.has(window)) return;
+    if (String(window.resourceClass).indexOf("konsole") === -1) return;
+    watched.add(window);
+    window.captionChanged.connect(function () { place(window); });
+    window.frameGeometryChanged.connect(function () { place(window); });
+    window.closed.connect(function () { watched.delete(window); });
+    place(window);
+}
+
+function placeAll() {
+    workspace.windowList().forEach(place);
+}
+
+workspace.windowList().forEach(watch);
+workspace.windowAdded.connect(watch);
+workspace.screensChanged.connect(placeAll);
+workspace.screenOrderChanged.connect(placeAll);
+STAR_FETCH_EOF
+} > "$KWIN_SCRIPT_DIR/contents/code/main.js"
+
+# Enable it, and reload it now so the new version takes effect without
+# logging out.
+kwriteconfig6 --file kwinrc --group Plugins --key star_fetchEnabled true
+dbus-send --session --type=method_call --dest=org.kde.KWin /Scripting \
+    org.kde.kwin.Scripting.unloadScript string:star_fetch >/dev/null 2>&1 || true
+dbus-send --session --type=method_call --dest=org.kde.KWin /Scripting \
+    org.kde.kwin.Scripting.start >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------- autostart
 if [ "$AUTOSTART" = 1 ]; then
@@ -798,7 +896,7 @@ echo ""
 echo "Done. star_fetch is installed."
 echo "  data:     $DATA_DIR"
 echo "  command:  $BIN_DIR/star_fetch"
-echo "  position: $POSITION   size: $SIZE"
+echo "  margin:   $MARGIN from the primary screen's top-right   size: $SIZE"
 echo ""
 echo "Start the widget:  star_fetch"
 echo "Stop the widget:   star_fetch end"
