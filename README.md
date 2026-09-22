@@ -6,10 +6,6 @@
   <img src="assets/star_fetch_frame_blonde.png" alt="star_fetch widget, blonde colors" width="380">
 </p>
 
-<p align="center">
-  <img src="assets/desktop_star_fetch.png" alt="star_fetch on the desktop" width="640">
-</p>
-
 konsole widget that fetches ram/cpu/battery info/os/uptime and
 watches for system changes for update every 30 seconds
 
@@ -18,6 +14,10 @@ uses 2 different konsole themes: blue and blonde
 font: Hack 10
 
 roughly 70% vibe-coded. works. 
+
+<p align="center">
+  <img src="assets/desktop_star_fetch.png" alt="star_fetch on the desktop" width="480">
+</p>
 
 ## Install (Fedora / KDE Plasma)
 
