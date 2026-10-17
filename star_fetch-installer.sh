@@ -11,6 +11,7 @@
 #   ~/.local/share/konsole/star_fetch.profile      Konsole profile
 #   ~/.local/share/konsole/Blonde.colorscheme      Konsole color scheme (default)
 #   ~/.local/share/konsole/StarFetchBlue.colorscheme  blue color scheme
+#   ~/.local/share/konsole/StarFetchBlueBlur.colorscheme  blue, see-through with blur
 #   ~/.config/kwinrulesrc                          KWin window rule
 #   ~/.local/share/kwin/scripts/star_fetch/        KWin script that places it
 #
@@ -20,7 +21,7 @@
 #
 # Options:
 #   --margin R,T     gap from the primary screen's right and top edges
-#                    in pixels                                 (default 186,130)
+#                    in pixels                                 (default 187,130)
 #   --size W,H       widget size in pixels                     (default 310,180)
 #   --autostart      also start the widget when you log in
 #   --no-start       don't start the widget after installing
@@ -30,6 +31,7 @@
 #   star_fetch          start the widget
 #   star_fetch end      stop it
 #   star_fetch blue     switch to the blue colors
+#   star_fetch blue blur  blue colors at 87% opacity with blur behind
 #   star_fetch blonde   switch back to the blonde colors (default)
 #   star_fetch border   toggle the border on/off (default off)
 
@@ -43,7 +45,7 @@ AUTOSTART_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/star_fetch.desktop"
 # instead of adding a duplicate.
 RULE_ID="4bf35db9-0ac7-4637-afb4-dfd61ca2972a"
 
-MARGIN="186,130"
+MARGIN="187,130"
 SIZE="310,180"
 AUTOSTART=0
 START=1
@@ -65,7 +67,7 @@ done
 
 for pair in "$MARGIN" "$SIZE"; do
     if ! [[ "$pair" =~ ^[0-9]+,[0-9]+$ ]]; then
-        echo "Expected two numbers like 186,130 — got '$pair'" >&2
+        echo "Expected two numbers like 187,130 — got '$pair'" >&2
         exit 1
     fi
 done
@@ -106,7 +108,7 @@ if [ "$ACTION" = uninstall ]; then
     stop_running_widget
     rm -rf "$DATA_DIR"
     rm -f "$BIN_DIR/star_fetch" "$KONSOLE_DIR/star_fetch.profile" "$AUTOSTART_FILE" \
-        "$KONSOLE_DIR/StarFetchBlue.colorscheme"
+        "$KONSOLE_DIR/StarFetchBlue.colorscheme" "$KONSOLE_DIR/StarFetchBlueBlur.colorscheme"
     # Blonde.colorscheme is left in place: other Konsole profiles may use it.
 
     if command -v kwriteconfig6 >/dev/null 2>&1; then
@@ -392,6 +394,7 @@ cat > "$BIN_DIR/star_fetch" <<'STAR_FETCH_EOF'
 #   star_fetch          start the widget (no-op if already running)
 #   star_fetch end      stop the widget
 #   star_fetch blue     switch to the blue colors
+#   star_fetch blue blur  blue colors at 87% opacity with blur behind
 #   star_fetch blonde   switch back to the blonde colors (default)
 #   star_fetch border   toggle the border on/off (default off)
 
@@ -503,7 +506,11 @@ case "${1:-}" in
         stop_widget
         ;;
     blue)
-        set_colors blue StarFetchBlue
+        if [ "${2:-}" = blur ]; then
+            set_colors "blue blur" StarFetchBlueBlur
+        else
+            set_colors blue StarFetchBlue
+        fi
         ;;
     blonde)
         set_colors blonde Blonde
@@ -512,7 +519,7 @@ case "${1:-}" in
         toggle_border
         ;;
     *)
-        echo "Usage: star_fetch [end | blue | blonde | border]"
+        echo "Usage: star_fetch [end | blue | blue blur | blonde | border]"
         exit 1
         ;;
 esac
@@ -520,11 +527,14 @@ STAR_FETCH_EOF
 chmod +x "$BIN_DIR/star_fetch"
 
 # ---------------------------------------------------------------- Konsole
-# Keep blue if it was picked with `star_fetch blue`; blonde otherwise.
+# Keep blue or blue blur if it was picked with `star_fetch blue [blur]`;
+# blonde otherwise.
 SCHEME=Blonde
-if grep -qx 'ColorScheme=StarFetchBlue' "$KONSOLE_DIR/star_fetch.profile" 2>/dev/null; then
-    SCHEME=StarFetchBlue
-fi
+for picked in StarFetchBlue StarFetchBlueBlur; do
+    if grep -qx "ColorScheme=$picked" "$KONSOLE_DIR/star_fetch.profile" 2>/dev/null; then
+        SCHEME=$picked
+    fi
+done
 
 # Hack 10 is pinned because the default size (310x180) is measured for it:
 # exactly 38x12 character cells, one blank row above and below the text.
@@ -743,11 +753,116 @@ Color=205,207,234
 
 [General]
 Anchor=0.5,0.5
-Blur=true
+Blur=false
 ColorRandomization=false
 Description=star_fetch blue
 FillStyle=Tile
 Opacity=1
+Wallpaper=
+WallpaperFlipType=NoFlip
+WallpaperOpacity=1
+STAR_FETCH_EOF
+
+# Same colors as StarFetchBlue, but 87% opaque with KWin's blur behind it
+# (`star_fetch blue blur`).
+cat > "$KONSOLE_DIR/StarFetchBlueBlur.colorscheme" <<'STAR_FETCH_EOF'
+[Background]
+Color=9,9,27
+
+[BackgroundFaint]
+Color=10,11,31
+
+[BackgroundIntense]
+Color=10,11,31
+
+[Color0]
+Color=3,5,10
+
+[Color0Faint]
+Color=3,5,10
+
+[Color0Intense]
+Color=49,51,85
+
+[Color1]
+Color=198,90,110
+
+[Color1Faint]
+Color=140,70,84
+
+[Color1Intense]
+Color=212,131,146
+
+[Color2]
+Color=127,169,124
+
+[Color2Faint]
+Color=94,124,92
+
+[Color2Intense]
+Color=159,190,157
+
+[Color3]
+Color=216,177,108
+
+[Color3Faint]
+Color=158,131,86
+
+[Color3Intense]
+Color=226,196,145
+
+[Color4]
+Color=80,81,118
+
+[Color4Faint]
+Color=60,61,90
+
+[Color4Intense]
+Color=132,133,159
+
+[Color5]
+Color=154,111,174
+
+[Color5Faint]
+Color=112,84,124
+
+[Color5Intense]
+Color=179,147,194
+
+[Color6]
+Color=111,166,176
+
+[Color6Faint]
+Color=82,122,130
+
+[Color6Intense]
+Color=147,188,196
+
+[Color7]
+Color=196,198,230
+
+[Color7Faint]
+Color=140,142,164
+
+[Color7Intense]
+Color=205,207,234
+
+[Foreground]
+Color=196,198,230
+
+[ForegroundFaint]
+Color=140,142,164
+
+[ForegroundIntense]
+Color=205,207,234
+
+[General]
+Anchor=0.5,0.5
+Blur=true
+ColorRandomization=false
+Description=star_fetch blue blur
+FillStyle=Tile
+Opacity=0.87
 Wallpaper=
 WallpaperFlipType=NoFlip
 WallpaperOpacity=1
@@ -900,7 +1015,7 @@ echo "  margin:   $MARGIN from the primary screen's top-right   size: $SIZE"
 echo ""
 echo "Start the widget:  star_fetch"
 echo "Stop the widget:   star_fetch end"
-echo "Colors:            star_fetch blue / star_fetch blonde"
+echo "Colors:            star_fetch blue / star_fetch blue blur / star_fetch blonde"
 echo "Border:            star_fetch border (toggles on/off)"
 
 if [ "$START" = 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then

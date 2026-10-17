@@ -10,7 +10,7 @@ konsole widget that fetches ram/cpu/battery info/os/uptime and
 watches for system changes for update every 30 seconds
 
 
-uses 2 different konsole themes: blue and blonde 
+uses 3 different konsole themes: blue, blue blur and blonde 
 font: Hack 10
 
 roughly 70% vibe-coded. works. 
@@ -32,6 +32,7 @@ bash star_fetch-installer.sh
 star_fetch          # start the widget
 star_fetch end      # stop it
 star_fetch blue     # blue colors (navy background, lavender text)
+star_fetch blue blur  # blue colors, 87% opacity with blur behind
 star_fetch blonde   # blonde colors (the default)
 star_fetch border   # toggles border on/off
 ```
@@ -42,7 +43,7 @@ star_fetch border   # toggles border on/off
 ## Options (Fedora / KDE Plasma)
 
 ```
---margin R,T     gap from the primary screen's right and top edges (default 186,130)
+--margin R,T     gap from the primary screen's right and top edges (default 187,130)
 --size W,H       size in pixels (default 310,180)
 --autostart      start the widget at login
 --no-start       don't start it after installing
