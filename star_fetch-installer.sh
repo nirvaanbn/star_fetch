@@ -1,39 +1,4 @@
 #!/usr/bin/env bash
-# star_fetch-installer.sh — single-file installer for star_fetch on Fedora / KDE Plasma.
-#
-# star_fetch is a borderless, always-below Konsole widget that shows live
-# RAM, CPU, battery, OS and uptime stats next to a small ascii scene.
-#
-# This one file carries everything the widget needs and sets all of it up:
-#   ~/.local/share/star_fetch/star_fetch.sh        stats script
-#   ~/.local/share/star_fetch/star_fetch.template  ascii layout
-#   ~/.local/bin/star_fetch                        start/stop command
-#   ~/.local/share/konsole/star_fetch.profile      Konsole profile
-#   ~/.local/share/konsole/Blonde.colorscheme      Konsole color scheme (default)
-#   ~/.local/share/konsole/StarFetchBlue.colorscheme  blue color scheme
-#   ~/.local/share/konsole/StarFetchBlueBlur.colorscheme  blue, see-through with blur
-#   ~/.config/kwinrulesrc                          KWin window rule
-#   ~/.local/share/kwin/scripts/star_fetch/        KWin script that places it
-#
-# Usage:
-#   bash star_fetch-installer.sh [options]       install (or update in place)
-#   bash star_fetch-installer.sh --uninstall     remove everything above
-#
-# Options:
-#   --margin R,T     gap from the primary screen's right and top edges
-#                    in pixels                                 (default 187,130)
-#   --size W,H       widget size in pixels                     (default 310,180)
-#   --autostart      also start the widget when you log in
-#   --no-start       don't start the widget after installing
-#   -h, --help       show this help
-#
-# After installing:
-#   star_fetch          start the widget
-#   star_fetch end      stop it
-#   star_fetch blue     switch to the blue colors
-#   star_fetch blue blur  blue colors at 87% opacity with blur behind
-#   star_fetch blonde   switch back to the blonde colors (default)
-#   star_fetch border   toggle the border on/off (default off)
 
 set -euo pipefail
 
@@ -41,8 +6,6 @@ DATA_DIR="$HOME/.local/share/star_fetch"
 BIN_DIR="$HOME/.local/bin"
 KONSOLE_DIR="$HOME/.local/share/konsole"
 AUTOSTART_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/star_fetch.desktop"
-# Fixed id so re-running the installer updates the same KWin rule
-# instead of adding a duplicate.
 RULE_ID="4bf35db9-0ac7-4637-afb4-dfd61ca2972a"
 
 MARGIN="187,130"
@@ -51,7 +14,45 @@ AUTOSTART=0
 START=1
 ACTION=install
 
-usage() { sed -n '2,/^$/{s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"; }
+usage() {
+    cat <<'USAGE_EOF'
+star_fetch-installer.sh — single-file installer for star_fetch on Fedora / KDE Plasma.
+
+star_fetch is a borderless, always-below Konsole widget that shows live
+RAM, CPU, battery, OS and uptime stats next to a small ascii scene.
+
+This one file carries everything the widget needs and sets all of it up:
+  ~/.local/share/star_fetch/star_fetch.sh        stats script
+  ~/.local/share/star_fetch/star_fetch.template  ascii layout
+  ~/.local/bin/star_fetch                        start/stop command
+  ~/.local/share/konsole/star_fetch.profile      Konsole profile
+  ~/.local/share/konsole/Blonde.colorscheme      Konsole color scheme (default)
+  ~/.local/share/konsole/StarFetchBlue.colorscheme  blue color scheme
+  ~/.local/share/konsole/StarFetchBlueBlur.colorscheme  blue, see-through with blur
+  ~/.config/kwinrulesrc                          KWin window rule
+  ~/.local/share/kwin/scripts/star_fetch/        KWin script that places it
+
+Usage:
+  bash star_fetch-installer.sh [options]       install (or update in place)
+  bash star_fetch-installer.sh --uninstall     remove everything above
+
+Options:
+  --margin R,T     gap from the primary screen's right and top edges
+                   in pixels                                 (default 187,130)
+  --size W,H       widget size in pixels                     (default 310,180)
+  --autostart      also start the widget when you log in
+  --no-start       don't start the widget after installing
+  -h, --help       show this help
+
+After installing:
+  star_fetch          start the widget
+  star_fetch end      stop it
+  star_fetch blue     switch to the blue colors
+  star_fetch blue blur  blue colors at 87% opacity with blur behind
+  star_fetch blonde   switch back to the blonde colors (default)
+  star_fetch border   toggle the border on/off (default off)
+USAGE_EOF
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -77,7 +78,6 @@ reconfigure_kwin() {
         /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
 }
 
-# kwriteconfig6 can't delete a whole group, so drop the rule's section by hand.
 delete_rule_group() {
     local rc="${XDG_CONFIG_HOME:-$HOME/.config}/kwinrulesrc"
     [ -f "$rc" ] || return 0
@@ -87,10 +87,7 @@ delete_rule_group() {
     ' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
 }
 
-# Matches the widget loop, and the watch-based widget from older installs.
 WIDGET_PATTERN='star_fetch\.sh --loop$|^watch -ctn 30 .*star_fetch\.sh$|^/usr/bin/watch -ctn 30 .*star_fetch\.sh$'
-# The Konsole windows star_fetch opens. Older versions left these open after
-# stopping, so they're closed too.
 KONSOLE_PATTERN='^konsole --profile star_fetch --hide-menubar --hide-tabbar$'
 
 stop_running_widget() {
@@ -102,14 +99,12 @@ stop_running_widget() {
     done
 }
 
-# ---------------------------------------------------------------- uninstall
 if [ "$ACTION" = uninstall ]; then
     echo "Uninstalling star_fetch..."
     stop_running_widget
     rm -rf "$DATA_DIR"
     rm -f "$BIN_DIR/star_fetch" "$KONSOLE_DIR/star_fetch.profile" "$AUTOSTART_FILE" \
         "$KONSOLE_DIR/StarFetchBlue.colorscheme" "$KONSOLE_DIR/StarFetchBlueBlur.colorscheme"
-    # Blonde.colorscheme is left in place: other Konsole profiles may use it.
 
     if command -v kwriteconfig6 >/dev/null 2>&1; then
         rules=$(kreadconfig6 --file kwinrulesrc --group General --key rules)
@@ -128,7 +123,6 @@ if [ "$ACTION" = uninstall ]; then
     exit 0
 fi
 
-# ---------------------------------------------------------------- dependencies
 missing=()
 need() { command -v "$1" >/dev/null 2>&1 || missing+=("$2"); }
 need konsole       konsole
@@ -154,32 +148,20 @@ fi
 echo "Installing star_fetch..."
 mkdir -p "$DATA_DIR" "$BIN_DIR" "$KONSOLE_DIR"
 
-# ---------------------------------------------------------------- data files
 cat > "$DATA_DIR/star_fetch.sh" <<'STAR_FETCH_EOF'
 #!/usr/bin/env bash
-# star_fetch.sh — prints star_fetch.template with live system stats
-# inserted one space after each ':' field.
-# Keep this script next to star_fetch.template (same directory).
-#
-#   star_fetch.sh          print the stats once
-#   star_fetch.sh --loop   widget mode: draw centered in the terminal,
-#                          refresh every 30s and redraw at once on resize
 
 set -u
-# Fixed locale so `free`, upower and awk output parse the same everywhere,
-# and so ${#line} counts characters, not bytes.
 export LC_ALL=C.UTF-8
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$SCRIPT_DIR/star_fetch.template"
 
-# --- RAM usage: percent + used GB only (no total/ratio) ---
 ram_pct() {
     free -b | awk '/^Mem:/ {
         printf "%.0f%% (%.1fGB)", ($3/$2)*100, $3/1073741824
     }'
 }
 
-# --- CPU usage: percent only ---
 cpu_pct() {
     read -r _ u1 n1 s1 i1 w1 x1 y1 z1 _rest1 < /proc/stat
     sleep 0.3
@@ -197,15 +179,32 @@ cpu_pct() {
     echo "${pct}%"
 }
 
-# --- Shorten upower's spelled-out time units ---
 shorten_units() {
     sed -e 's/\bhours\b/hrs/' -e 's/\bhour\b/hr/' -e 's/\bminutes\b/mins/' -e 's/\bminute\b/min/' \
         -e 's/\bseconds\b/secs/' -e 's/\bsecond\b/sec/'
 }
 
-# --- Battery: percentage, line label, and time (single upower query) ---
-# Plugged in: "full charge in:" + time until 100% (0 secs once full).
-# On battery: "uptime left:" + time until empty.
+BATT_LOG="$SCRIPT_DIR/battery.log"
+AVG_WINDOW=1800 MIN_SPAN=300 MAX_GAP=120
+
+avg_time_left() {
+    local now
+    now=$(date +%s)
+    {
+        [ -f "$BATT_LOG" ] && awk -v cut=$((now - AVG_WINDOW)) '$1 >= cut' "$BATT_LOG"
+        echo "$now $1"
+    } > "$BATT_LOG.tmp" && mv -f "$BATT_LOG.tmp" "$BATT_LOG"
+    awk -v gap=$MAX_GAP -v min=$MIN_SPAN '
+        NR > 1 && $1 - t <= gap { used += e - $2; span += $1 - t }
+        { t = $1; e = $2 }
+        END {
+            if (span < min || used <= 0) exit
+            hrs = e / (used * 3600 / span)
+            if (hrs >= 1) printf "%.1f hrs", hrs
+            else          printf "%.1f mins", hrs * 60
+        }' "$BATT_LOG"
+}
+
 battery_info() {
     local label="full charge in:"
     if ! command -v upower >/dev/null 2>&1; then
@@ -225,10 +224,11 @@ battery_info() {
     case "$state" in
         discharging)
             label="uptime left:"
-            left=$(echo "$info" | awk -F: '/time to empty/ { gsub(/^[ \t]+/,"",$2); print $2 }' | shorten_units)
+            left=$(avg_time_left "$(echo "$info" | awk '/^ *energy:/ {print $2}')")
+            [ -z "$left" ] && left=$(echo "$info" | awk -F: '/time to empty/ { gsub(/^[ \t]+/,"",$2); print $2 }' | shorten_units)
             ;;
         charging|pending-charge|fully-charged)
-            # upower keeps reporting a few seconds "to full" at 100%.
+            rm -f "$BATT_LOG"
             if [ "$state" = fully-charged ] || [ "${pct%%%*}" = 100 ]; then
                 left="0 secs"
             else
@@ -245,7 +245,6 @@ battery_info() {
     echo "${pct}|${label}|${left}"
 }
 
-# --- OS name: just distro + version, no edition suffix ---
 os_name() {
     local name ver
     name=$(awk -F= '/^NAME=/ { gsub(/"/,"",$2); print $2 }' /etc/os-release)
@@ -253,7 +252,6 @@ os_name() {
     echo "$name $ver"
 }
 
-# --- System uptime, decimal hours (matches the battery field's style) ---
 uptime_str() {
     awk '{ printf "%.1f hrs", $1/3600 }' /proc/uptime
 }
@@ -277,20 +275,12 @@ render() {
     ' "$TEMPLATE"
 }
 
-# --- Widget mode: center the block in the terminal ---
-# The block is centered on a fixed width (widest template line + room for
-# its value) so the text doesn't shift sideways as the numbers change.
 VALUE_ROOM=8
 
-# --- Optional border (`star_fetch border` toggles it) ---
-# Drawn on the outermost cells while the flag file exists. The toggle also
-# grows the window by one cell on each side, so the text keeps its spacing.
 BORDER_FLAG="$SCRIPT_DIR/border"
 PROFILE="$HOME/.local/share/konsole/star_fetch.profile"
 
 border_color() {
-    # Blonde: a soft tan from the Blonde palette, lighter than its brown text.
-    # Blue: the lavender text color itself (the default foreground).
     if grep -qx 'ColorScheme=Blonde' "$PROFILE" 2>/dev/null; then
         printf '\e[38;2;166;136;102m'
     else
@@ -317,8 +307,6 @@ draw() {
     top=$(( (inner_r - ${#lines[@]}) / 2 )); [ "$top" -lt 0 ] && top=0
     left=$(( (inner_c - width) / 2 ));       [ "$left" -lt 0 ] && left=0
 
-    # Home the cursor and overwrite in place (no full clear, so no flicker);
-    # \e[K clears the rest of each row, \e[J everything below the block.
     out=$'\e[H'
     if [ "$border" = 0 ]; then
         for ((i = 0; i < top; i++)); do out+=$'\e[K\n'; done
@@ -328,8 +316,6 @@ draw() {
         done
         out+=$'\e[J'
     else
-        # Every row is drawn full width: pad (or clip) the text to the
-        # inside of the box so the right edge lines up.
         color=$(border_color)
         hline=""
         for ((i = 0; i < inner_c; i++)); do hline+='─'; done
@@ -349,14 +335,10 @@ draw() {
 }
 
 if [ "${1:-}" = --loop ]; then
-    # Hide the cursor and turn off line wrapping: a line too long for the
-    # window gets clipped instead of pushing the rest of the text down.
     printf '\e[?25l\e[?7l\e[2J'
     nap=""
     trap 'resized=1; [ -n "$nap" ] && kill "$nap" 2>/dev/null' WINCH
     trap '[ -n "$nap" ] && kill "$nap" 2>/dev/null' EXIT
-    # Exit cleanly when stopped: Konsole keeps a window open if its command
-    # dies from a signal, but closes it after a normal exit.
     trap 'exit 0' TERM HUP INT
     while :; do
         resized=0
@@ -386,28 +368,14 @@ cat > "$DATA_DIR/star_fetch.template" <<'STAR_FETCH_EOF'
 ⠀⠀⠀⠀⠀⠀     uptime:
 STAR_FETCH_EOF
 
-# ---------------------------------------------------------------- command
 cat > "$BIN_DIR/star_fetch" <<'STAR_FETCH_EOF'
 #!/usr/bin/env bash
-# star_fetch — start/stop the star_fetch Konsole desktop widget
-#
-#   star_fetch          start the widget (no-op if already running)
-#   star_fetch end      stop the widget
-#   star_fetch blue     switch to the blue colors
-#   star_fetch blue blur  blue colors at 87% opacity with blur behind
-#   star_fetch blonde   switch back to the blonde colors (default)
-#   star_fetch border   toggle the border on/off (default off)
 
-# Anchored so it only matches the widget itself, not some other command line
-# that happens to mention star_fetch.sh.
 PATTERN='star_fetch\.sh --loop$'
-# The Konsole windows star_fetch opens (stopping closes these too).
 KONSOLE_PATTERN='^konsole --profile star_fetch --hide-menubar --hide-tabbar$'
 PROFILE="$HOME/.local/share/konsole/star_fetch.profile"
 DATA_DIR="$HOME/.local/share/star_fetch"
 RULE_ID="4bf35db9-0ac7-4637-afb4-dfd61ca2972a"
-# The border takes one character cell on each side. Hack 10 cells are
-# ~8.14x15 px, so 38x12 cells (310x180) become 40x14 (326x210).
 BORDER_W=16 BORDER_H=30
 
 is_running() {
@@ -424,11 +392,6 @@ start_widget() {
         < /dev/null > /dev/null 2>&1 &
     disown
 
-    # Konsole sets the window's real title a moment after it's first
-    # mapped, which is often too late for KWin's window rule to catch
-    # on that very first placement. Nudging KWin to re-check its rules
-    # a second later re-applies the Force'd size/behavior once the title
-    # has caught up. (The star_fetch KWin script does the positioning.)
     sleep 1
     dbus-send --session --dest=org.kde.KWin --type=method_call \
         /KWin org.kde.KWin.reconfigure 2>/dev/null
@@ -440,10 +403,7 @@ stop_widget() {
     local was_running=0
     is_running && was_running=1
     pkill -f "$PATTERN" 2>/dev/null
-    # Also close any star_fetch Konsole windows (including ones older
-    # versions left open after stopping).
     pkill -f "$KONSOLE_PATTERN" 2>/dev/null
-    # Wait for it to exit so a restart doesn't see it as still running.
     for _ in 1 2 3 4 5 6 7 8 9 10; do
         pgrep -f "$PATTERN|$KONSOLE_PATTERN" >/dev/null 2>&1 || break
         sleep 0.2
@@ -455,8 +415,6 @@ stop_widget() {
     fi
 }
 
-# Konsole only reads a profile's colors when a window opens, so switching
-# rewrites the profile and restarts the widget if it's up.
 set_colors() {
     local name=$1 scheme=$2
     if [ ! -f "$PROFILE" ]; then
@@ -471,10 +429,6 @@ set_colors() {
     fi
 }
 
-# The border flag tells star_fetch.sh to draw the box; the KWin rule grows
-# (or shrinks) the window to make room, and the star_fetch KWin script keeps
-# it anchored to the screen's top-right corner. A running widget redraws as
-# soon as the window is resized.
 toggle_border() {
     local size w h state
     size=$(kreadconfig6 --file kwinrulesrc --group "$RULE_ID" --key size)
@@ -526,9 +480,6 @@ esac
 STAR_FETCH_EOF
 chmod +x "$BIN_DIR/star_fetch"
 
-# ---------------------------------------------------------------- Konsole
-# Keep blue or blue blur if it was picked with `star_fetch blue [blur]`;
-# blonde otherwise.
 SCHEME=Blonde
 for picked in StarFetchBlue StarFetchBlueBlur; do
     if grep -qx "ColorScheme=$picked" "$KONSOLE_DIR/star_fetch.profile" 2>/dev/null; then
@@ -536,8 +487,6 @@ for picked in StarFetchBlue StarFetchBlueBlur; do
     fi
 done
 
-# Hack 10 is pinned because the default size (310x180) is measured for it:
-# exactly 38x12 character cells, one blank row above and below the text.
 cat > "$KONSOLE_DIR/star_fetch.profile" <<STAR_FETCH_EOF
 [Appearance]
 ColorScheme=$SCHEME
@@ -763,8 +712,6 @@ WallpaperFlipType=NoFlip
 WallpaperOpacity=1
 STAR_FETCH_EOF
 
-# Same colors as StarFetchBlue, but 87% opaque with KWin's blur behind it
-# (`star_fetch blue blur`).
 cat > "$KONSOLE_DIR/StarFetchBlueBlur.colorscheme" <<'STAR_FETCH_EOF'
 [Background]
 Color=9,9,27
@@ -868,11 +815,6 @@ WallpaperFlipType=NoFlip
 WallpaperOpacity=1
 STAR_FETCH_EOF
 
-# ---------------------------------------------------------------- KWin rule
-# The profile titles the widget "star_fetch — Konsole"; the rule matches that
-# substring and forces: no border, keep below, all desktops, skip taskbar and
-# pager, no focus, and a fixed size. Position is left to the KWin script
-# below, since a rule can only hold one fixed spot for every screen setup.
 kw() { kwriteconfig6 --file kwinrulesrc --group "$RULE_ID" "$@"; }
 delete_rule_group
 kw --key Description   "star_fetch"
@@ -885,8 +827,6 @@ kw --key desktops      '\0'
 kw --key desktopsrule  2
 kw --key noborder      true
 kw --key noborderrule  2
-# --size describes the widget without a border. If the border is on
-# (`star_fetch border`), grow the window one cell per side (16x30 px in Hack 10).
 RULE_SIZE="$SIZE"
 if [ -f "$DATA_DIR/border" ]; then
     IFS=, read -r bw bh <<< "$SIZE"
@@ -909,10 +849,6 @@ kwriteconfig6 --file kwinrulesrc --group General --key count \
     "$(echo "$rules" | tr ',' '\n' | grep -c . || true)"
 reconfigure_kwin
 
-# ---------------------------------------------------------------- KWin script
-# Keeps the widget a fixed gap from the top-right corner of the primary
-# screen, and moves it again when screens are plugged in, unplugged or
-# rearranged, or when the border toggle resizes it.
 KWIN_SCRIPT_DIR="$HOME/.local/share/kwin/scripts/star_fetch"
 mkdir -p "$KWIN_SCRIPT_DIR/contents/code"
 IFS=, read -r MARGIN_RIGHT MARGIN_TOP <<< "$MARGIN"
@@ -932,13 +868,11 @@ cat > "$KWIN_SCRIPT_DIR/metadata.json" <<'STAR_FETCH_EOF'
 STAR_FETCH_EOF
 
 {
-    echo "// Written by star_fetch-installer.sh (--margin $MARGIN_RIGHT,$MARGIN_TOP)."
-    echo "var RIGHT_MARGIN = $MARGIN_RIGHT;  // px from the primary screen's right edge"
-    echo "var TOP_MARGIN = $MARGIN_TOP;     // px from its top edge"
+    echo "var RIGHT_MARGIN = $MARGIN_RIGHT;"
+    echo "var TOP_MARGIN = $MARGIN_TOP;"
     cat <<'STAR_FETCH_EOF'
 var TITLE = "star_fetch — Konsole";
 
-// Log with: journalctl --user -b | grep "star_fetch:"
 function log(message) {
     console.info("star_fetch: " + message);
 }
@@ -959,8 +893,6 @@ function place(window) {
     log("placed at " + x + "," + y + " on " + screen.name);
 }
 
-// Konsole names the window a moment after it opens, and the window rule
-// resizes it, so re-check on both.
 var watched = new Set();
 function watch(window) {
     if (!window || watched.has(window)) return;
@@ -983,15 +915,12 @@ workspace.screenOrderChanged.connect(placeAll);
 STAR_FETCH_EOF
 } > "$KWIN_SCRIPT_DIR/contents/code/main.js"
 
-# Enable it, and reload it now so the new version takes effect without
-# logging out.
 kwriteconfig6 --file kwinrc --group Plugins --key star_fetchEnabled true
 dbus-send --session --type=method_call --dest=org.kde.KWin /Scripting \
     org.kde.kwin.Scripting.unloadScript string:star_fetch >/dev/null 2>&1 || true
 dbus-send --session --type=method_call --dest=org.kde.KWin /Scripting \
     org.kde.kwin.Scripting.start >/dev/null 2>&1 || true
 
-# ---------------------------------------------------------------- autostart
 if [ "$AUTOSTART" = 1 ]; then
     mkdir -p "$(dirname "$AUTOSTART_FILE")"
     cat > "$AUTOSTART_FILE" <<STAR_FETCH_EOF
@@ -1006,7 +935,6 @@ STAR_FETCH_EOF
     echo "Autostart enabled: $AUTOSTART_FILE"
 fi
 
-# ---------------------------------------------------------------- finish
 echo ""
 echo "Done. star_fetch is installed."
 echo "  data:     $DATA_DIR"
@@ -1019,7 +947,6 @@ echo "Colors:            star_fetch blue / star_fetch blue blur / star_fetch blo
 echo "Border:            star_fetch border (toggles on/off)"
 
 if [ "$START" = 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-    # Restart so a running widget picks up the new files.
     stop_running_widget
     "$BIN_DIR/star_fetch" >/dev/null && echo "" && echo "star_fetch started."
 fi
